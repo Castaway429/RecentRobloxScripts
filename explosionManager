@@ -1,0 +1,43 @@
+
+game.ReplicatedStorage.explosions.OnServerEvent:Connect(function(plr, soundType, position, structure, extra)	
+	--print(plr.Name)
+	--print(soundType)
+	--print(position)
+	--print(structure.Name)
+	
+	if soundType == "Electric_explosion" then
+		--print("Explosion starting")
+		--Unanchor all parts and turn them to rust
+		--Usually for charging stations
+		local part = Instance.new("Part")
+		local fire = Instance.new("Fire")
+		fire.Heat = 25
+		part.Anchored = true
+		part.Parent = game.Workspace
+		part.Transparency = 1
+		part.Position = position
+		local copyFireSound = game.ServerStorage:FindFirstChild("Torch_Burn"):Clone()
+		copyFireSound.Parent = part
+		copyFireSound:play()
+		fire.Parent = part
+		local warningSound = game.ServerStorage:FindFirstChild("bomb_warning2"):Clone()
+		warningSound.Parent = part
+		warningSound:Play()
+		task.wait(2)
+		local copyExplSound = game.ServerStorage:FindFirstChild("Electric Explosion"):Clone() --Explode (ADD SOUND EFFECT HERE)
+		copyExplSound.Parent = part
+		copyExplSound:Play()
+		local explosion = Instance.new("Explosion", game.Workspace)
+		explosion.Position = part.Position
+		explosion.BlastRadius = 12
+		explosion.BlastPressure = 50000
+		for _, part in pairs (structure.Build:GetChildren()) do
+			--part.Anchored = false
+			part.Material = "CorrodedMetal"
+		end
+		wait(15)
+		copyFireSound:Stop()
+		part:Destroy()
+		fire:Destroy()
+	end
+end)
