@@ -1,0 +1,302 @@
+local CollectionService = game:GetService("CollectionService")
+
+local questActionFolder = game.ReplicatedStorage:FindFirstChild("questPrompts")
+local QuestPrompted = questActionFolder:FindFirstChild("QuestPrompted")
+local acceptedQuest = questActionFolder:FindFirstChild("acceptedQuest")
+local declinedQuest = questActionFolder:FindFirstChild("declinedQuest")
+local TweenService = game:GetService("TweenService")
+local Player = game.Players.LocalPlayer
+local Backpack = Player:FindFirstChild("Backpack")
+
+--Quest Accept / Decline Box
+local QuestGui = script.Parent
+local DecisionBox = QuestGui:WaitForChild("DecisionBox")
+
+local R1 = DecisionBox:WaitForChild("Response1")
+local R2 = DecisionBox:WaitForChild("Response2")
+
+--Dialouge box
+local DialogueGui = script.Parent.Parent:WaitForChild("DialogueGUI")
+local DialogueManager = DialogueGui:WaitForChild("Dialogue Manager")
+local DialougeBox = DialogueGui:WaitForChild("DialougeBox")
+
+--Quest Data
+local QuestData = require(script:FindFirstChild("QuestData"))
+--Some module scripts
+local Dialouge = require(DialogueManager:FindFirstChild("Dialouge"))
+local DialougeLines = require(DialogueManager:FindFirstChild("DialougeLines"))
+local Talk_Counter = require(DialogueManager:WaitForChild("LineCount"))
+local DefaultLines = require(DialogueManager:WaitForChild("DialougeDefault"))
+local CompletedQL = require(QuestGui:FindFirstChild("Quest Manager"):FindFirstChild("CompletedQuestLines"))
+local LinesGivenForOtherNPC = require(QuestGui:FindFirstChild("Quest Manager"):FindFirstChild("QuestLinesForOtherNPCS"))
+
+local QuestResponses = require(QuestGui:FindFirstChild("Quest Manager"):FindFirstChild("Quest Responses"))
+local QuestService = questActionFolder:WaitForChild("QuestService")
+
+--Player info
+local QuestFolder = Player:FindFirstChild("Quests")
+
+--Make the box invisbile
+DecisionBox.Visible = false
+
+--Some listener variables
+local choice1Listener
+local choice2Listener
+
+local function closeQuestPrompt()
+	--Tween Dialouge Box to go higher
+	local endPostion = UDim2.new(0.206, 0,0.652, 0)
+	DialougeBox:TweenPosition(
+		endPostion,
+		"In",
+		"Quad",
+		0.5,
+		false
+	)
+	DecisionBox.Visible = false
+	R1.Visible = false
+	R2.Visible = false
+	
+	choice1Listener:Disconnect()
+	choice2Listener:Disconnect()
+	
+end
+
+local function openQuestPrompt(name)
+	--Tween Dialouge Box to go higher
+	local endPostion = UDim2.new(0.206, 0,0.349, 0)	
+	DialougeBox:TweenPosition(
+		endPostion,
+		"Out",
+		"Quad",
+		0.5,
+		false
+	)
+
+	DecisionBox.Visible = true
+	R1.Text = "Accept"
+	R2.Text = "Decline"
+	R1.Visible = true
+	R2.Visible = true
+
+	choice1Listener = R1.MouseButton1Click:Connect(function()
+--		print("Player accepted quest")
+		acceptedQuest:FireServer(name)
+		closeQuestPrompt()
+	end)
+
+	choice2Listener = R2.MouseButton1Click:Connect(function()
+--		print("Player declined quest")
+		declinedQuest:FireServer(name)
+		closeQuestPrompt()
+	end)
+end
+
+QuestPrompted.OnClientEvent:Connect(function(name)
+	local plr = game.Players.LocalPlayer
+	openQuestPrompt(name)
+end)
+
+--Some actual Quest Managing
+acceptedQuest.OnClientEvent:Connect(function(name)
+	local talkCounter = Talk_Counter[name]
+	local SelectedquestData = QuestData[name][talkCounter]
+	
+	local StringValue = Instance.new("StringValue", QuestFolder)
+	StringValue.Name = name .. "_Quest" .. talkCounter
+	
+	--Set some of our attributes
+	StringValue:SetAttribute("Completed", false)
+	StringValue:SetAttribute("Quest_type", SelectedquestData[1])
+	--if it specifically an item retrival quest
+	if SelectedquestData[1] == "BringBackItem" then
+		--If it's a collect item event check the player's inventory to see if they already have collected this item
+		local tool = Backpack:FindFirstChild(SelectedquestData[3])
+		print(SelectedquestData[3])
+		if tool then
+			StringValue:SetAttribute("Collected_Item", true)
+			print(Player.Name .. " Already Has Item for ", SelectedquestData[4])
+			--Add / Remove from table to what the NPC will say
+			local talkCounter = Talk_Counter[SelectedquestData[4]] --Lines hasn't finished so I'll add one
+			local lines = DialougeLines[SelectedquestData[4]]
+			local linesThatNeedsToBeAdded = QuestResponses[SelectedquestData[4]][talkCounter + 1]
+			--print(linesThatNeedsToBeAdded)
+			--print(lines)
+			--print(talkCounter)
+			table.insert(lines, linesThatNeedsToBeAdded)
+		else 
+			StringValue:SetAttribute("Collected_Item", false)
+		end
+	else if SelectedquestData[1] == "TalkToNPC" then
+			--Lines need to be added for a quest to another NPC it will be done below
+			local line = LinesGivenForOtherNPC[SelectedquestData[3]]
+			
+			--Replace the line existing with the new one
+			DialougeLines[SelectedquestData[3]] = line
+			
+			--print(line)
+			--print(DialougeLines[SelectedquestData[3]])
+			
+			--Reset it back to one incase the player has already talked to said npc
+			Talk_Counter[SelectedquestData[3]] = 1
+			
+		end
+	end
+	
+	StringValue:SetAttribute(SelectedquestData[2], SelectedquestData[3])
+	StringValue:SetAttribute("Quest_Parent", SelectedquestData[4])
+	
+	
+	
+end)
+
+QuestService.OnClientEvent:Connect(function(action, item_name)
+	--print("Action: ", action)
+	--print("Item Name", item_name)
+	local children = QuestFolder:GetChildren()
+	
+	if action == "PickedUpItem" then
+		--Check the folder to see if the player has a quest to collect this item
+		--Change / Add dialouge to the Quest's Parent accordingly
+		--When player talks to Parent delte the item out of player's inventory
+		for _, child in pairs(children) do
+			local attributes = child:GetAttributes()
+			
+			--Find the attribute where Item_Name == item_name
+			local questItemName = attributes.Item_Name
+			
+			if questItemName and questItemName == item_name then
+				print(Player.Name .. " Collected Item for ", attributes.Quest_Parent)
+				child:SetAttribute("Collected_Item", true)
+				--Add / Remove from table to what the NPC will say
+				local talkCounter = Talk_Counter[attributes.Quest_Parent]
+				local lines = DialougeLines[attributes.Quest_Parent]
+				local linesThatNeedsToBeAdded = QuestResponses[attributes.Quest_Parent][talkCounter]
+				table.insert(lines, linesThatNeedsToBeAdded)
+			end
+		end
+		
+		else if action == "TalkedToNPC" then
+			--Check the folder to see if the player has a quest to talk to someone
+			--Check if the player has talked to specific NPC
+			--Change / Add dialouge to the Quest's Parent accordingly
+			for _, child in pairs(children) do
+				local attributes = child:GetAttributes()
+				local questType = attributes.Quest_type
+				
+				if questType then
+					if questType == "TalkToNPC" then
+						--Needs to Both handle adding the lines to the new NPC and check
+						-- if talked to the parent NPC
+--						print("Need to talk to someone!")
+--						print(attributes.NPC_name)
+--						print(item_name)
+						
+						if attributes.NPC_name == item_name and attributes.Completed == false then
+--s							print("Talked to correct NPC!!!")
+							child:SetAttribute("Completed", true)
+							--Change / Add lines to the parent
+							local talkCounter = Talk_Counter[attributes.Quest_Parent]
+							local lines = DialougeLines[attributes.Quest_Parent]
+							local linesThatNeedsToBeAdded = QuestResponses[attributes.Quest_Parent][talkCounter]
+							table.insert(lines, linesThatNeedsToBeAdded)
+							
+							--Add default lines
+							local NPC = attributes.NPC_name
+							
+							local line = CompletedQL[NPC]
+							if line ~= nil then
+								DefaultLines[NPC] = line
+							end
+							
+						end
+					else if questType == "TouchBlock" then
+						
+							if attributes.Quest_Parent == item_name and attributes.Completed == true then
+								local ParentName = attributes.Quest_Parent
+								--If applicable changed the default line
+								local line = CompletedQL[ParentName]
+								print(Talk_Counter[ParentName])
+								print(DefaultLines[ParentName])
+								print(line)
+								if line ~= nil then
+									DefaultLines[ParentName] = line
+								end
+							end
+						end
+					end
+				end
+			end
+	
+			else if action == "TouchedBlock" then
+				--Check the folder to see if the player has a quest to touch an object
+				--Check if the player has touched the object
+				--Change / Add dialouge to the Quest's Parent accordingly
+				for _, child in pairs(children) do
+					local attributes = child:GetAttributes()
+					
+					if attributes.Block_Name == item_name then
+						child:SetAttribute("Completed", true)
+						
+						--Add to the parent's lines and change the default line if applicable
+						local ParentName = attributes.Quest_Parent
+						
+						local talkCounter = Talk_Counter[ParentName]
+						local lines = DialougeLines[ParentName]
+						local linesThatNeedsToBeAdded = QuestResponses[ParentName][talkCounter]
+						table.insert(lines, linesThatNeedsToBeAdded)
+						
+						CollectionService:RemoveTag(item_name, "QuestItem")
+					end
+				end
+				else if action == "TalkingToNPC" then
+					--Mainly used for retrival item quests
+					for _, child in pairs(children) do
+						local attributes = child:GetAttributes()
+						local questType = attributes.Quest_type
+						
+						local questParent = attributes.Quest_Parent
+
+						if questType then
+							if questType == "BringBackItem" and attributes.Collected_Item == true and attributes.Completed == false and questParent == item_name then
+								print(Player.Name .. " gave " .. attributes.Item_Name .. " to " .. attributes.Quest_Parent)
+								local tool = Backpack:FindFirstChild(attributes.Item_Name)
+								tool:Destroy()
+
+								child:SetAttribute("Completed", true)
+								local NPCName = attributes.Quest_Parent
+
+								--Change the default line
+								local line = CompletedQL[attributes.Quest_Parent]
+								--local lineToBeReplaced = DefaultLines[attributes.Quest_Parent]
+								--print(DefaultLines[NPCName])
+								if line then
+									DefaultLines[NPCName] = line
+								end
+								
+							else if questType == "TalkToNPC" and attributes.Completed == true and questParent == item_name then
+								local ParentName = attributes.Quest_Parent
+
+									--Change the default line
+									local line = CompletedQL[ParentName]
+									--print(line)
+									--local lineToBeReplaced = DefaultLines[attributes.Quest_Parent]
+									--print(DefaultLines[NPCName])
+									if line then
+										DefaultLines[ParentName] = line
+									end
+								
+									
+								end
+							end
+						end
+						
+					end
+					
+				end
+				
+			end
+			
+		end
+	end
+end)
